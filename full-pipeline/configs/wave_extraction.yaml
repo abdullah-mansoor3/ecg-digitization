@@ -1,0 +1,2 @@
+weights_path: ../models/unet-binary-masking.pth
+device: cpu

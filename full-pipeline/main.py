@@ -1,0 +1,98 @@
+import os
+import cv2
+import yaml
+import torch
+import numpy as np
+
+from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
+from scripts.grid_detection import get_grid_square_size
+from scripts.extract_wave import WaveExtractor
+from scripts.digititze import process_ecg_mask, plot_waveform
+from scripts.create_ecg_paper import create_ecg_paper  # Add this import
+
+# --- Load configs ---
+with open('./configs/lead_segmentation.yaml', 'r') as f:
+    lead_cfg = yaml.safe_load(f)
+with open('./configs/wave_extraction.yaml', 'r') as f:
+    wave_cfg = yaml.safe_load(f)
+with open('./configs/grid_detection.yaml', 'r') as f:
+    grid_cfg = yaml.safe_load(f)
+with open('./configs/digitize.yaml', 'r') as f:
+    digitize_cfg = yaml.safe_load(f)
+
+# --- Paths ---
+INPUT_IMAGE_DIR = lead_cfg['input_image_dir']
+CROPPED_SAVE_DIR = lead_cfg['output_dir']
+GRID_KERNEL = grid_cfg.get('closing_kernel', 10)
+GRID_LENGTH_FRAC = grid_cfg.get('length_frac', 0.05)
+WAVE_WEIGHTS_PATH = wave_cfg['weights_path']
+WAVE_DEVICE = wave_cfg.get('device', 'cpu')
+FINAL_OUTPUT_DIR = digitize_cfg['output_dir']
+
+os.makedirs(CROPPED_SAVE_DIR, exist_ok=True)
+os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
+
+# --- 1. Lead Segmentation ---
+print("Running lead segmentation...")
+lead_model = init_lead_model(lead_cfg['model_path'])
+image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+
+all_cropped_leads = []
+for img_file in image_files:
+    img_path = os.path.join(INPUT_IMAGE_DIR, img_file)
+    cropped_leads, _ = inference_and_label_and_crop(
+        lead_model, img_path, CROPPED_SAVE_DIR, conf_threshold=lead_cfg['conf_threshold']
+    )
+    # cropped_leads: list of (cropped_img, label)
+    for crop_img, label in cropped_leads:
+        base_name = os.path.splitext(img_file)[0]
+        crop_path = os.path.join(CROPPED_SAVE_DIR, f"{base_name}_{label}.jpg")
+        all_cropped_leads.append((crop_path, label, base_name))
+
+# --- 2. Grid Detection & Square Size Estimation ---
+print("Estimating grid square sizes...")
+lead_to_square_size = {}
+for crop_path, label, base_name in all_cropped_leads:
+    img = cv2.imread(crop_path)
+    if img is None:
+        print(f"Failed to read {crop_path}")
+        continue
+    square_size = get_grid_square_size(img, closing_kernel=GRID_KERNEL, length_frac=GRID_LENGTH_FRAC)
+    lead_to_square_size[crop_path] = square_size
+
+# --- 3. Wave Extraction (Binary Mask) ---
+print("Extracting binary wave masks...")
+wave_extractor = WaveExtractor(WAVE_WEIGHTS_PATH, device=WAVE_DEVICE)
+lead_to_wave_mask = {}
+for crop_path, label, base_name in all_cropped_leads:
+    binary_mask = wave_extractor.extract_wave(crop_path)
+    lead_to_wave_mask[crop_path] = binary_mask
+    # wave_extractor.plot_wave(binary_mask, title=f"{base_name}_{label}_mask")
+
+# --- 4. Digitize: Convert Mask to Waveform ---
+print("Digitizing waveforms...")
+lead_waveforms = []
+lead_labels = []
+for crop_path, label, base_name in all_cropped_leads:
+    binary_mask = lead_to_wave_mask[crop_path]
+    square_size = lead_to_square_size[crop_path]
+    waveform = process_ecg_mask(
+        binary_mask,
+        square_size,
+        output_dir=FINAL_OUTPUT_DIR,
+        base_name=f"{base_name}_{label}",
+        plot=False
+    )
+    print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
+    lead_waveforms.append(waveform)
+    lead_labels.append(label)  
+    print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
+
+# --- 5. Create ECG Paper ---
+print("Creating ECG paper with all leads...")
+ecg_paper_path = os.path.join(FINAL_OUTPUT_DIR, "reconstructed_ecg_paper.png")
+create_ecg_paper(lead_waveforms, lead_labels, ecg_paper_path)
+print("ECG paper saved to:", ecg_paper_path)
+
+
+print("Pipeline complete. All outputs saved to:", FINAL_OUTPUT_DIR)
