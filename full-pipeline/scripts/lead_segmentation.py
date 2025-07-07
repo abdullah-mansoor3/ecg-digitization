@@ -2,6 +2,7 @@ import os
 import cv2
 from ultralytics import YOLO
 import yaml
+import numpy as np
 
 # Load config from YAML
 with open('./configs/lead_segmentation.yaml', 'r') as f:
@@ -91,14 +92,38 @@ def inference_and_label_and_crop(model, input_image_path, output_dir, conf_thres
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             wave_boxes.append([x1, y1, x2, y2])
 
-    wave_boxes = sort_wave_boxes(wave_boxes)
+    # --- Robust labeling: split into left/right, sort by y, assign labels ---
+    labeled_boxes = []
+    if len(wave_boxes) >= 12:
+        # Compute x-centers
+        x_centers = [((box[0] + box[2]) / 2) for box in wave_boxes]
+        median_x = np.median(x_centers)
+
+        left_boxes = []
+        right_boxes = []
+        for box in wave_boxes:
+            x_center = (box[0] + box[2]) / 2
+            if x_center < median_x:
+                left_boxes.append(box)
+            else:
+                right_boxes.append(box)
+
+        # Sort each group by y-center (top to bottom)
+        left_boxes = sorted(left_boxes, key=lambda b: (b[1] + b[3]) / 2)
+        right_boxes = sorted(right_boxes, key=lambda b: (b[1] + b[3]) / 2)
+
+        # Assign labels
+        for box, label in zip(left_boxes, LEFT_LABELS):
+            labeled_boxes.append((box, label))
+        for box, label in zip(right_boxes, RIGHT_LABELS):
+            labeled_boxes.append((box, label))
+    else:
+        print("Not enough boxes detected for robust labeling.")
+        return [], []
 
     cropped_leads = []
     cropped_leads_paths = []
-    for idx, box in enumerate(wave_boxes):
-        label = LEFT_LABELS[idx] if idx < len(LEFT_LABELS) else RIGHT_LABELS[idx - len(LEFT_LABELS)]
-
-        # Crop and save
+    for box, label in labeled_boxes:
         x1, y1, x2, y2 = box
         crop = img[y1:y2, x1:x2]
         save_path = os.path.join(output_dir, f"{base_name}_{label}.jpg")

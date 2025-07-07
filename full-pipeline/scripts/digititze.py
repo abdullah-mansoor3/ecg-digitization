@@ -6,10 +6,86 @@ import cv2
 from skimage.morphology import skeletonize
 from skimage.measure import label, regionprops
 
+from scipy.signal import medfilt
+
+def remove_baseline_median(signal, fs, window_sec=0.6):
+    """
+    Removes baseline wander using sliding median filter.
+    Args:
+        signal (np.ndarray): ECG signal (1D)
+        fs (int): Sampling frequency
+        window_sec (float): Window size in seconds (default: 0.6s)
+    Returns:
+        np.ndarray: Detrended ECG signal
+    """
+    window_size = int(window_sec * fs)
+    if window_size % 2 == 0:
+        window_size += 1  # must be odd
+    baseline = medfilt(signal, kernel_size=window_size)
+    return signal - baseline
+
+def correct_local_baseline(signal, fs=400, window_sec=2.0):
+    """
+    Correct ECG baseline drift by subtracting a local baseline in each window.
+    Args:
+        signal (np.ndarray): 1D ECG signal
+        fs (int): Sampling frequency (default 400 Hz)
+        window_sec (float): Window length in seconds (default 2s)
+    Returns:
+        np.ndarray: Baseline corrected signal
+    """
+    corrected = np.zeros_like(signal)
+    window_size = int(window_sec * fs)
+    n_windows = int(np.ceil(len(signal) / window_size))
+
+    for i in range(n_windows):
+        start = i * window_size
+        end = min((i + 1) * window_size, len(signal))
+        segment = signal[start:end]
+
+        # Estimate baseline using lower percentile to avoid R peaks
+        baseline = np.percentile(segment, 10)
+        corrected[start:end] = segment - baseline
+
+    return corrected
+
+def normalize_around_flat_segments(signal, fs=400, window_sec=0.2, flat_thresh=0.05):
+    """
+    Normalize ECG signal by anchoring it to flat baseline segments (e.g., PR, ST, TP).
+    
+    Args:
+        signal (np.ndarray): 1D ECG signal (in mV)
+        fs (int): Sampling frequency
+        window_sec (float): Window length in seconds to search for flat regions
+        flat_thresh (float): Max std deviation in a window to consider it flat (in mV)
+        
+    Returns:
+        np.ndarray: Baseline-shifted ECG signal
+    """
+    window_size = int(window_sec * fs)
+    n = len(signal)
+    flat_baselines = []
+
+    for start in range(0, n - window_size, window_size // 2):
+        window = signal[start:start + window_size]
+        if np.std(window) < flat_thresh:
+            flat_baselines.append(np.mean(window))
+
+    if len(flat_baselines) == 0:
+        print("Warning: No flat segments found. Returning original signal.")
+        return signal.copy()
+
+    estimated_baseline = np.median(flat_baselines)
+    return signal - estimated_baseline
+
+
+
+
 def binary_mask_to_waveform(mask, square_size):
     """
     Converts a binary ECG mask to a 1D waveform array in mV, sampled at 0.01s intervals.
     Baseline is found using the mode of all y indices (your logic).
+    Removes trailing zero values after the wave ends.
     """
     H, W = mask.shape
 
@@ -26,27 +102,46 @@ def binary_mask_to_waveform(mask, square_size):
             y_means[x] = y_indices.mean()
             all_y_indices.extend(y_indices.tolist())
 
-    # --- Baseline logic exactly as you wrote ---
-    # Build a histogram of all y indices (vertical axis)
+    # --- Baseline logic ---
     if len(all_y_indices) == 0:
         raise ValueError("No wave pixels found in mask.")
     counts = np.bincount(all_y_indices, minlength=H)
     baseline_y = int(np.argmax(counts))
 
-    # Amplitude: (y_baseline - y_mean) * y_pixel_mV
+    # Amplitude in mV
     amplitude_mv = (baseline_y - y_means) * y_pixel_mV
-    # Above baseline: positive, below: negative
 
-    # Time axis for original signal
+    # Time axis (original resolution)
     time = np.arange(W) * x_pixel_sec
 
-    # Interpolate to 0.01s intervals
-    time_interp = np.arange(0, time[-1], 0.0025)  # 0.0025s intervals (40Hz)
+    # Interpolation to 0.0025s (40Hz)
     valid = ~np.isnan(amplitude_mv)
     interp_func = interp1d(time[valid], amplitude_mv[valid], kind='linear', bounds_error=False, fill_value="extrapolate")
+    time_interp = np.arange(0, time[-1], 0.0025)
     signal_mv_interp = interp_func(time_interp)
 
+
+    # Fix the baseline drift
+    signal_mv_interp = normalize_around_flat_segments(signal_mv_interp, fs=400)
+
+    signal_mv_interp = correct_local_baseline(signal_mv_interp, fs=400, window_sec=0.1)
+    signal_mv_interp = remove_baseline_median(signal_mv_interp, fs=400)
+
+    # Optionally clip large spikes
+    signal_mv_interp = np.clip(signal_mv_interp, -2, 2)
+
+
+    # --- Trim trailing zeros ---
+    non_zero_indices = np.where(np.abs(signal_mv_interp) > 1e-4)[0]
+    if len(non_zero_indices) == 0:
+        return np.array([]), np.array([]), baseline_y  # no signal found
+
+    last_nonzero_idx = non_zero_indices[-1]
+    signal_mv_interp = signal_mv_interp[:last_nonzero_idx + 1]
+    time_interp = time_interp[:last_nonzero_idx + 1]
+
     return signal_mv_interp, time_interp, baseline_y
+
 
 def clean_and_skeletonize_wave(mask, min_area=100, gap_threshold=5):
     """
@@ -81,7 +176,7 @@ def clean_and_skeletonize_wave(mask, min_area=100, gap_threshold=5):
                 cv2.line(cleaned, (x1, y1), (x2, y2), 1, 1)
 
     # Step 3: Skeletonize
-    # skeleton = skeletonize(cleaned.astype(bool)).astype(np.uint8)
+    skeleton = skeletonize(cleaned.astype(bool)).astype(np.uint8)
 
     # Step 4: Keep only the largest connected component (assumed to be the main wave)
     labeled_skel = label(cleaned)

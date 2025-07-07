@@ -1,3 +1,6 @@
+import time
+start_time = time.time()
+
 import os
 import cv2
 import yaml
@@ -58,6 +61,7 @@ for crop_path, label, base_name in all_cropped_leads:
         print(f"Failed to read {crop_path}")
         continue
     square_size = get_grid_square_size(img, closing_kernel=GRID_KERNEL, length_frac=GRID_LENGTH_FRAC)
+    print(f"Estimated square size for {base_name}_{label}: {square_size} pixels")
     lead_to_square_size[crop_path] = square_size
 
 # --- 3. Wave Extraction (Binary Mask) ---
@@ -96,3 +100,6 @@ print("ECG paper saved to:", ecg_paper_path)
 
 
 print("Pipeline complete. All outputs saved to:", FINAL_OUTPUT_DIR)
+
+end_time = time.time()
+print(f"Time taken: {end_time - start_time:.2f} seconds")
