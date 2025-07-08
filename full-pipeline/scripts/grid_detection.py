@@ -3,13 +3,23 @@ import numpy as np
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 
-def extract_grid_mask(img, closing_kernel=5, length_frac=0.8):
+def extract_grid_mask(img, closing_kernel=5, length_frac=0.8, resize_width=None, resize_height=None):
     """
     img:       BGR or grayscale input
     closing_kernel: size of small kernel to close grid dots ([3,3] works well)
     length_frac: fraction of img width/height that a line must span to be kept
+    resize_width: optional width to resize image before processing
+    resize_height: optional height to resize image before processing
     Returns: grid mask as np.ndarray
     """
+
+    if resize_width is not None or resize_height is not None:
+        if resize_width is None:
+            resize_width = img.shape[1]
+        if resize_height is None:
+            resize_height = img.shape[0]
+        img = cv2.resize(img, (resize_width, resize_height), interpolation=cv2.INTER_AREA)
+
     # 1) Grayscale + adaptive threshold
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim==3 else img
     binarized = cv2.adaptiveThreshold(

@@ -9,7 +9,7 @@ import numpy as np
 
 from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
 from scripts.grid_detection import get_grid_square_size
-from scripts.extract_wave import WaveExtractor
+from scripts.extract_wave_s import WaveExtractor
 from scripts.digititze import process_ecg_mask, plot_waveform
 from scripts.create_ecg_paper import create_ecg_paper  # Add this import
 
@@ -40,22 +40,36 @@ print("Running lead segmentation...")
 lead_model = init_lead_model(lead_cfg['model_path'])
 image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
 
+# Get resize dimensions from config
+target_width = wave_cfg.get('input_width')
+target_height = wave_cfg.get('input_height')
+
+
 all_cropped_leads = []
 for img_file in image_files:
     img_path = os.path.join(INPUT_IMAGE_DIR, img_file)
     cropped_leads, _ = inference_and_label_and_crop(
         lead_model, img_path, CROPPED_SAVE_DIR, conf_threshold=lead_cfg['conf_threshold']
     )
-    # cropped_leads: list of (cropped_img, label)
+
     for crop_img, label in cropped_leads:
         base_name = os.path.splitext(img_file)[0]
         crop_path = os.path.join(CROPPED_SAVE_DIR, f"{base_name}_{label}.jpg")
-        all_cropped_leads.append((crop_path, label, base_name))
+
+        original_size = crop_img.shape[:2]  # (height, width)
+
+        resized_crop = cv2.resize(crop_img, (target_width, target_height))
+        cv2.imwrite(crop_path, resized_crop)
+
+        # Save original size for resizing masks later
+        all_cropped_leads.append((crop_path, label, base_name, original_size))
+
+
 
 # --- 2. Grid Detection & Square Size Estimation ---
 print("Estimating grid square sizes...")
 lead_to_square_size = {}
-for crop_path, label, base_name in all_cropped_leads:
+for crop_path, label, base_name, original_size in all_cropped_leads:
     img = cv2.imread(crop_path)
     if img is None:
         print(f"Failed to read {crop_path}")
@@ -68,16 +82,22 @@ for crop_path, label, base_name in all_cropped_leads:
 print("Extracting binary wave masks...")
 wave_extractor = WaveExtractor(WAVE_WEIGHTS_PATH, device=WAVE_DEVICE)
 lead_to_wave_mask = {}
-for crop_path, label, base_name in all_cropped_leads:
+
+for crop_path, label, base_name, original_size in all_cropped_leads:
     binary_mask = wave_extractor.extract_wave(crop_path)
-    lead_to_wave_mask[crop_path] = binary_mask
-    # wave_extractor.plot_wave(binary_mask, title=f"{base_name}_{label}_mask")
+
+    # Resize mask back to original lead crop size (important for accurate square_size)
+    binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
+    lead_to_wave_mask[crop_path] = binary_mask_resized
+    print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
+    wave_extractor.plot_wave(binary_mask)
+
 
 # --- 4. Digitize: Convert Mask to Waveform ---
 print("Digitizing waveforms...")
 lead_waveforms = []
 lead_labels = []
-for crop_path, label, base_name in all_cropped_leads:
+for crop_path, label, base_name, original_size in all_cropped_leads:
     binary_mask = lead_to_wave_mask[crop_path]
     square_size = lead_to_square_size[crop_path]
     waveform = process_ecg_mask(
@@ -91,6 +111,7 @@ for crop_path, label, base_name in all_cropped_leads:
     lead_waveforms.append(waveform)
     lead_labels.append(label)  
     print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
+    plot_waveform(waveform)
 
 # --- 5. Create ECG Paper ---
 print("Creating ECG paper with all leads...")

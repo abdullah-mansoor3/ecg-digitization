@@ -122,13 +122,13 @@ def binary_mask_to_waveform(mask, square_size):
 
 
     # Fix the baseline drift
-    signal_mv_interp = normalize_around_flat_segments(signal_mv_interp, fs=400)
+    # signal_mv_interp = normalize_around_flat_segments(signal_mv_interp, fs=400)
 
-    signal_mv_interp = correct_local_baseline(signal_mv_interp, fs=400, window_sec=0.1)
-    signal_mv_interp = remove_baseline_median(signal_mv_interp, fs=400)
+    # signal_mv_interp = correct_local_baseline(signal_mv_interp, fs=400, window_sec=0.1)
+    # signal_mv_interp = remove_baseline_median(signal_mv_interp, fs=400)
 
-    # Optionally clip large spikes
-    signal_mv_interp = np.clip(signal_mv_interp, -2, 2)
+    # # Optionally clip large spikes
+    # signal_mv_interp = np.clip(signal_mv_interp, -2, 2)
 
 
     # --- Trim trailing zeros ---
@@ -204,8 +204,9 @@ def plot_waveform(waveform, time_axis=None, xlim=(0, 1000), ylim=(-1, 1), title=
     """
     plt.figure(figsize=(10, 4))
     if time_axis is not None:
-        plt.plot(time_axis, waveform)
-        plt.xlabel("Time (s)")
+        # plt.plot(time_axis, waveform)
+        # plt.xlabel("Time (s)")
+        pass
     else:
         plt.plot(waveform)
         plt.xlabel("Sample")

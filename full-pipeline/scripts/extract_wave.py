@@ -9,11 +9,13 @@ class WaveExtractor:
         """
         Initialize the UNet model and set device.
         """
+        print('initializing wave extractor...')
         self.device = torch.device(device)
         self.model = Unet("resnet34", encoder_weights="imagenet", in_channels=3, classes=1)
         self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
         self.model = self.model.to(self.device)
         self.model.eval()
+        print('Wave extractor initialized.')
 
     @staticmethod
     def center_crop(tensor, target_h):

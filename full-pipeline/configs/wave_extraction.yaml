@@ -1,2 +1,6 @@
-weights_path: ../models/unet-binary-masking.pth
+# weights_path: ../models/unet-binary-masking.pth # path for 97 MB model
+weights_path: ../models/unetWaveExtract_SMS.pth # path for 7 MB model
+# input shape of the 7MB model
+input_width: 256
+input_height: 256 
 device: cpu
