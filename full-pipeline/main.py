@@ -9,7 +9,7 @@ import numpy as np
 
 from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
 from scripts.grid_detection import get_grid_square_size
-from scripts.extract_wave_s import WaveExtractor
+from scripts.extract_wave import WaveExtractor
 from scripts.digititze import process_ecg_mask, plot_waveform
 from scripts.create_ecg_paper import create_ecg_paper  # Add this import
 
@@ -41,8 +41,8 @@ lead_model = init_lead_model(lead_cfg['model_path'])
 image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
 
 # Get resize dimensions from config
-target_width = wave_cfg.get('input_width')
-target_height = wave_cfg.get('input_height')
+# target_width = wave_cfg.get('input_width')
+# target_height = wave_cfg.get('input_height')
 
 
 all_cropped_leads = []
@@ -56,13 +56,13 @@ for img_file in image_files:
         base_name = os.path.splitext(img_file)[0]
         crop_path = os.path.join(CROPPED_SAVE_DIR, f"{base_name}_{label}.jpg")
 
-        original_size = crop_img.shape[:2]  # (height, width)
+        # original_size = crop_img.shape[:2]  # (height, width)
 
-        resized_crop = cv2.resize(crop_img, (target_width, target_height))
-        cv2.imwrite(crop_path, resized_crop)
+        # resized_crop = cv2.resize(crop_img, (target_width, target_height))
+        cv2.imwrite(crop_path, crop_img)
 
         # Save original size for resizing masks later
-        all_cropped_leads.append((crop_path, label, base_name, original_size))
+        all_cropped_leads.append((crop_path, label, base_name, crop_path))
 
 
 
@@ -87,9 +87,9 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
     binary_mask = wave_extractor.extract_wave(crop_path)
 
     # Resize mask back to original lead crop size (important for accurate square_size)
-    binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
-    lead_to_wave_mask[crop_path] = binary_mask_resized
-    print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
+    # binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
+    lead_to_wave_mask[crop_path] = binary_mask
+    # print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
     wave_extractor.plot_wave(binary_mask)
 
 
