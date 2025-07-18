@@ -7,7 +7,6 @@ import yaml
 import torch
 import numpy as np
 
-from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
 from scripts.grid_detection import get_grid_square_size
 from scripts.extract_wave import WaveExtractor
 from scripts.digititze import process_ecg_mask, plot_waveform
@@ -31,9 +30,15 @@ GRID_LENGTH_FRAC = grid_cfg.get('length_frac', 0.05)
 WAVE_WEIGHTS_PATH = wave_cfg['weights_path']
 WAVE_DEVICE = wave_cfg.get('device', 'cpu')
 FINAL_OUTPUT_DIR = digitize_cfg['output_dir']
-
+YOLO_WEIGHTS_PATH = lead_cfg['model_path']
 os.makedirs(CROPPED_SAVE_DIR, exist_ok=True)
 os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
+
+if 'onnx' in YOLO_WEIGHTS_PATH.lower():
+    from scripts.lead_segmentation_onnx import init_model as init_lead_model, inference_and_label_and_crop
+else:
+    from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
+
 
 # --- 1. Lead Segmentation ---
 print("Running lead segmentation...")
@@ -90,7 +95,7 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
     # binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
     lead_to_wave_mask[crop_path] = binary_mask
     # print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
-    wave_extractor.plot_wave(binary_mask)
+    # wave_extractor.plot_wave(binary_mask)
 
 
 # --- 4. Digitize: Convert Mask to Waveform ---
@@ -111,7 +116,7 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
     lead_waveforms.append(waveform)
     lead_labels.append(label)  
     print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
-    plot_waveform(waveform)
+    # plot_waveform(waveform)
 
 # --- 5. Create ECG Paper ---
 print("Creating ECG paper with all leads...")
