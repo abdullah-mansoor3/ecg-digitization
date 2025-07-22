@@ -20,8 +20,8 @@ This directory has the code (but not the models and data) to input a raw ecg pap
 ### Create a Virtual Environment
 
 ```
-python -m venv ecg_digitization_venv
-source ecg_digitization_venv/bin/activate
+conda create -y -p ./venv python=3.10
+conda activate ./venv
 ```
 
 ### Install dependencies

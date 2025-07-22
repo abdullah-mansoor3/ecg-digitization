@@ -36,6 +36,8 @@ os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
 
 if 'onnx' in YOLO_WEIGHTS_PATH.lower():
     from scripts.lead_segmentation_onnx import init_model as init_lead_model, inference_and_label_and_crop
+elif 'tflite' in YOLO_WEIGHTS_PATH.lower():
+    from scripts.lead_segmentation_tflite import init_model as init_lead_model, inference_and_label_and_crop
 else:
     from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
 
@@ -44,10 +46,6 @@ else:
 print("Running lead segmentation...")
 lead_model = init_lead_model(lead_cfg['model_path'])
 image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
-
-# Get resize dimensions from config
-# target_width = wave_cfg.get('input_width')
-# target_height = wave_cfg.get('input_height')
 
 
 all_cropped_leads = []
