@@ -8,9 +8,10 @@ import torch
 import numpy as np
 
 from scripts.grid_detection import get_grid_square_size
-from scripts.extract_wave import WaveExtractor
-from scripts.digititze import process_ecg_mask, plot_waveform
-from scripts.create_ecg_paper import create_ecg_paper  # Add this import
+from scripts.extract_wave_tflite import WaveExtractor
+from scripts.digititze import process_ecg_mask
+from scripts.create_ecg_paper import create_ecg_paper
+from scripts.lead_segmentation_tflite import init_model as init_lead_model, inference_and_label_and_crop
 
 # --- Load configs ---
 with open('./configs/lead_segmentation.yaml', 'r') as f:
@@ -34,14 +35,6 @@ YOLO_WEIGHTS_PATH = lead_cfg['model_path']
 os.makedirs(CROPPED_SAVE_DIR, exist_ok=True)
 os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
 
-if 'onnx' in YOLO_WEIGHTS_PATH.lower():
-    from scripts.lead_segmentation_onnx import init_model as init_lead_model, inference_and_label_and_crop
-elif 'tflite' in YOLO_WEIGHTS_PATH.lower():
-    from scripts.lead_segmentation_tflite import init_model as init_lead_model, inference_and_label_and_crop
-else:
-    from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
-
-
 # --- 1. Lead Segmentation ---
 print("Running lead segmentation...")
 lead_model = init_lead_model(lead_cfg['model_path'])
@@ -59,13 +52,13 @@ for img_file in image_files:
         base_name = os.path.splitext(img_file)[0]
         crop_path = os.path.join(CROPPED_SAVE_DIR, f"{base_name}_{label}.jpg")
 
-        # original_size = crop_img.shape[:2]  # (height, width)
+        original_size = crop_img.shape[:2]  # (height, width)
 
         # resized_crop = cv2.resize(crop_img, (target_width, target_height))
         cv2.imwrite(crop_path, crop_img)
 
         # Save original size for resizing masks later
-        all_cropped_leads.append((crop_path, label, base_name, crop_path))
+        all_cropped_leads.append((crop_path, label, base_name, original_size))
 
 
 
@@ -87,14 +80,23 @@ wave_extractor = WaveExtractor(WAVE_WEIGHTS_PATH, device=WAVE_DEVICE)
 lead_to_wave_mask = {}
 
 for crop_path, label, base_name, original_size in all_cropped_leads:
+    print(f"Processing: {base_name}_{label}")
+    print(f"Original size raw: {original_size} (type: {type(original_size)})")
+
+    try:
+        h, w = int(original_size[1]), int(original_size[0])
+    except Exception as e:
+        print(f"  ❌ ERROR parsing original_size: {original_size}")
+        raise e
+
     binary_mask = wave_extractor.extract_wave(crop_path)
+    binary_mask_np = np.array(binary_mask)
 
-    # Resize mask back to original lead crop size (important for accurate square_size)
-    # binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
-    lead_to_wave_mask[crop_path] = binary_mask
-    # print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
-    # wave_extractor.plot_wave(binary_mask)
+    binary_mask_resized = cv2.resize(binary_mask_np, (w, h), interpolation=cv2.INTER_NEAREST)
+    lead_to_wave_mask[crop_path] = binary_mask_resized
+    print(f"✅ Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
 
+    # wave_extractor.plot_wave(binary_mask) #optionally plot it
 
 # --- 4. Digitize: Convert Mask to Waveform ---
 print("Digitizing waveforms...")
@@ -108,7 +110,7 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
         square_size,
         output_dir=FINAL_OUTPUT_DIR,
         base_name=f"{base_name}_{label}",
-        plot=False
+        plot=False # optionally plot it
     )
     print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
     lead_waveforms.append(waveform)
@@ -116,7 +118,7 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
     print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
     # plot_waveform(waveform)
 
-# --- 5. Create ECG Paper ---
+# --- 5. Create ECG Paper --- (Optional)
 print("Creating ECG paper with all leads...")
 ecg_paper_path = os.path.join(FINAL_OUTPUT_DIR, "reconstructed_ecg_paper.png")
 create_ecg_paper(lead_waveforms, lead_labels, ecg_paper_path)

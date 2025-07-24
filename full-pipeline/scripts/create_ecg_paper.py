@@ -63,6 +63,13 @@ def create_ecg_paper(leads, labels, output_path, fs=400):
     axes = axes.flatten()
 
     for i, (lead, label) in enumerate(zip(ordered_leads, ordered_labels)):
+
+        if lead is None or len(lead) == 0 or np.all(lead == 0):
+            print(f"⚠️ Skipping lead {label} due to empty or invalid waveform.")
+            axes.set_title(f"{label} (missing)", fontsize=12, color="red")
+            axes.axis('off')
+            continue
+
         ax = axes[i]
         padded = np.full_like(time, np.nan)
         padded[:len(lead)] = lead * amplitude_scale

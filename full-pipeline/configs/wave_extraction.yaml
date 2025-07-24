@@ -1,2 +1,2 @@
-weights_path: ../models/unet-binary-masking.pth
-device: cpu
+weights_path: ../models/unet_model.tflite #change according to need
+device: cpu #dont change
