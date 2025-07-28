@@ -20,7 +20,8 @@ def detect_pqrs(signal, sampling_rate=400):
     else:
         signal2 = signal
 
-    signals, info = nk.ecg_process(signal2, sampling_rate=sampling_rate)
+    ecg_cleaned = nk.ecg_clean(signal2, sampling_rate=400)
+    signals, info = nk.ecg_process(ecg_cleaned, sampling_rate=sampling_rate)
     cleaned = np.array(signals["ECG_Clean"][:len(signal)])
 
     peaks_dict = {}

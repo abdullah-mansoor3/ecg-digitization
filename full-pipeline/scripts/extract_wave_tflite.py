@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import cv2
 
 class WaveExtractor:
     def __init__(self, weights_path, device='cpu'):
@@ -27,7 +28,7 @@ class WaveExtractor:
     def extract_wave(self, cropped_lead_img_path):
         """
         Takes the path to a cropped lead image, returns the extracted wave mask as a numpy array.
-        The output is center-cropped to remove any padding.
+        The output is center-cropped to remove any padding(PIL image).
         """
         # Load raw original image
         original_img = Image.open(cropped_lead_img_path).convert("L")
@@ -49,16 +50,12 @@ class WaveExtractor:
         return pred_mask_img
 
         
-    def plot_wave(self, binary_mask, title="Extracted Waveform Binary Mask"):
+    def save_wave(self, binary_mask,output_path):
         """
-        Plots the binary waveform mask.
+        saves the binary waveform mask.
         Args:
-            binary_mask (np.ndarray): 2D binary mask (output of extract_wave)
-            title (str): Plot title
+            binary_mask (PIL image): 
+            output_path: duh
         """
-        plt.figure(figsize=(10, 4))
-        plt.imshow(binary_mask, cmap='gray', aspect='auto')
-        plt.title(title)
-        plt.axis('off')
-        plt.tight_layout()
-        plt.show()
+        
+        binary_mask.save(output_path)

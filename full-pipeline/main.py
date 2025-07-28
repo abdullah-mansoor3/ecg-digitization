@@ -12,7 +12,7 @@ from scripts.extract_wave_tflite import WaveExtractor
 from scripts.digititze import process_ecg_mask
 from scripts.create_ecg_paper import create_ecg_paper
 from scripts.lead_segmentation_tflite import init_model as init_lead_model, inference_and_label_and_crop
-
+from scripts.analyze_waves import analyze_waves
 # --- Load configs ---
 with open('./configs/lead_segmentation.yaml', 'r') as f:
     lead_cfg = yaml.safe_load(f)
@@ -81,7 +81,7 @@ lead_to_wave_mask = {}
 
 for crop_path, label, base_name, original_size in all_cropped_leads:
     print(f"Processing: {base_name}_{label}")
-    print(f"Original size raw: {original_size} (type: {type(original_size)})")
+    # print(f"Original size raw: {original_size} (type: {type(original_size)})")
 
     try:
         h, w = int(original_size[1]), int(original_size[0])
@@ -94,35 +94,59 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
 
     binary_mask_resized = cv2.resize(binary_mask_np, (w, h), interpolation=cv2.INTER_NEAREST)
     lead_to_wave_mask[crop_path] = binary_mask_resized
-    print(f"✅ Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
+    # print(f"✅ Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
 
-    # wave_extractor.plot_wave(binary_mask) #optionally plot it
-
+    wave_extractor.save_wave(binary_mask,os.path.join(FINAL_OUTPUT_DIR, f"{base_name}_{label}_binary_wave_plot.png"))
+    
+# --- 4. Digitize: Convert Mask to Waveform ---
 # --- 4. Digitize: Convert Mask to Waveform ---
 print("Digitizing waveforms...")
 lead_waveforms = []
 lead_labels = []
 for crop_path, label, base_name, original_size in all_cropped_leads:
+    # original_size = (height, width)
+    h_orig, w_orig = original_size
+    print(f"[DEBUG] {base_name}_{label} crop_img shape: height={h_orig}, width={w_orig}")
     binary_mask = lead_to_wave_mask[crop_path]
+    print(f"[DEBUG]   raw mask shape: {binary_mask.shape}")
+
     square_size = lead_to_square_size[crop_path]
-    waveform = process_ecg_mask(
+    print(f"[DEBUG]   square_size: {square_size}")
+
+    # *** FIX: pass (w_orig, h_orig) to resize ***
+    binary_mask_resized = cv2.resize(
         binary_mask,
+        (w_orig, h_orig),                # width, height
+        interpolation=cv2.INTER_NEAREST
+    )
+    print(f"[DEBUG]   resized mask shape: {binary_mask_resized.shape}")
+
+    waveform = process_ecg_mask(
+        binary_mask_resized,
         square_size,
         output_dir=FINAL_OUTPUT_DIR,
         base_name=f"{base_name}_{label}",
-        plot=False # optionally plot it
+        plot=False
     )
-    print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
+    print(f"[DEBUG]   digitized waveform length: {len(waveform)} samples\n")
     lead_waveforms.append(waveform)
-    lead_labels.append(label)  
-    print(f"Digitized waveform for {base_name}_{label}: length={len(waveform)}")
-    # plot_waveform(waveform)
+    lead_labels.append(label)
 
-# --- 5. Create ECG Paper --- (Optional)
-print("Creating ECG paper with all leads...")
-ecg_paper_path = os.path.join(FINAL_OUTPUT_DIR, "reconstructed_ecg_paper.png")
-create_ecg_paper(lead_waveforms, lead_labels, ecg_paper_path)
-print("ECG paper saved to:", ecg_paper_path)
+    
+
+
+# --- 5. Give Final Analysis ---
+print('Analyzing Waves...')
+print(f'Final Analaysis: {analyze_waves(lead_waveforms, lead_labels)}')
+
+
+
+
+# --- Optional Create ECG Paper ---
+# print("Creating ECG paper with all leads...")
+# ecg_paper_path = os.path.join(FINAL_OUTPUT_DIR, "reconstructed_ecg_paper.png")
+# create_ecg_paper(lead_waveforms, lead_labels, ecg_paper_path)
+# print("ECG paper saved to:", ecg_paper_path)
 
 
 print("Pipeline complete. All outputs saved to:", FINAL_OUTPUT_DIR)

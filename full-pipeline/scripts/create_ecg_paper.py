@@ -61,22 +61,32 @@ def create_ecg_paper(leads, labels, output_path, fs=400):
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 14), sharex=True)
     axes = axes.flatten()
+    y_min, y_max = -2, 2 
 
     for i, (lead, label) in enumerate(zip(ordered_leads, ordered_labels)):
+        ax = axes[i]
 
         if lead is None or len(lead) == 0 or np.all(lead == 0):
             print(f"⚠️ Skipping lead {label} due to empty or invalid waveform.")
-            axes.set_title(f"{label} (missing)", fontsize=12, color="red")
-            axes.axis('off')
+            ax.set_title(f"{label} (missing)", fontsize=12, color="red")
+            ax.axis('off')
             continue
 
-        ax = axes[i]
         padded = np.full_like(time, np.nan)
         padded[:len(lead)] = lead * amplitude_scale
 
-        # Detect peaks
-        peaks, cleaned = detect_pqrs(lead, sampling_rate=fs)
-        cleaned_stretched = cleaned * amplitude_scale
+        print(f"Lead {label}: min={np.min(lead)}, max={np.max(lead)}, len={len(lead)}, NaNs={np.isnan(lead).sum()}")
+
+
+        try:
+            # 🚨 Protect against NeuroKit crashes from bad signals
+            peaks, cleaned = detect_pqrs(lead, sampling_rate=fs)
+            cleaned_stretched = cleaned * amplitude_scale
+        except Exception as e:
+            print(f"❌ Failed to process lead {label}: {e}")
+            ax.set_title(f"{label} (error)", fontsize=12, color="red")
+            ax.axis('off')
+            continue
 
         # --- Grid drawing ---
         ax.set_facecolor('white')
@@ -84,24 +94,23 @@ def create_ecg_paper(leads, labels, output_path, fs=400):
         y_margin = 1.5
         ax.set_ylim(np.nanmin(cleaned_stretched) - y_margin, np.nanmax(cleaned_stretched) + y_margin)
 
-        # Draw vertical grid lines (time)
+        # Grid lines
         for x in np.arange(0, max_duration, small_sec):
             ax.axvline(x, color='#f8cccc', linewidth=0.5 if x % sec_per_big_square else 1.0, zorder=0)
-        # Draw horizontal grid lines (voltage)
-        y_min, y_max = -2, 2  # or use min/max across all leads
         for y in np.arange(np.floor(y_min), np.ceil(y_max), small_mv):
             ax.axhline(y, color='#f8cccc', linewidth=0.5 if abs(y) % mv_per_big_square < 1e-6 else 1.0, zorder=0)
 
-        # Plot ECG
+        # Plot waveform
         ax.plot(time[:len(cleaned)], cleaned_stretched, color='black', linewidth=1.2)
-        # Plot peaks
+
+        # Plot PQRST peaks
         colors = {"P": "green", "Q": "red", "R": "purple", "S": "orange", "T": "blue"}
         for wave, color in colors.items():
             if wave in peaks:
                 ax.plot(time[peaks[wave]], cleaned_stretched[peaks[wave]], 'o', color=color, markersize=6)
+
         # Lead label
         ax.text(0.01, 0.85, label, fontsize=13, color='darkred', weight='bold', transform=ax.transAxes)
-
         ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=(i >= (n_rows * n_cols) - n_cols))
 
     # Set consistent y-limits across all subplots
