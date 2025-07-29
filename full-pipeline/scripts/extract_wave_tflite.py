@@ -25,13 +25,13 @@ class WaveExtractor:
         img_array = np.array(img_resized, dtype=np.float32) / 255.0
         return img_array[np.newaxis, np.newaxis, :, :]  # shape: [1, 1, H, W]
 
-    def extract_wave(self, cropped_lead_img_path):
+    def extract_wave(self, cropped_lead_img):
         """
-        Takes the path to a cropped lead image, returns the extracted wave mask as a numpy array.
+        Takes the cropped lead image in PIL Image type, returns the extracted wave mask as a numpy array.
         The output is center-cropped to remove any padding(PIL image).
         """
         # Load raw original image
-        original_img = Image.open(cropped_lead_img_path).convert("L")
+        original_img = cropped_lead_img.convert("L")
         original_size = original_img.size  # (W, H)
 
         # Preprocess for model input

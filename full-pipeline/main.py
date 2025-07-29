@@ -6,6 +6,7 @@ import cv2
 import yaml
 import torch
 import numpy as np
+from PIL import Image
 
 from scripts.grid_detection import get_grid_square_size
 from scripts.extract_wave_tflite import WaveExtractor
@@ -39,48 +40,48 @@ os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
 print("Running lead segmentation...")
 lead_model = init_lead_model(lead_cfg['model_path'])
 image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
-
+base_name = [file.replace('.jpg', '').replace('.jpeg', '').replace('.png', '') for file in image_files]
 
 all_cropped_leads = []
-for img_file in image_files:
+for img_file, base_name in zip(image_files, base_name):
+
     img_path = os.path.join(INPUT_IMAGE_DIR, img_file)
-    cropped_leads, _ = inference_and_label_and_crop(
-        lead_model, img_path, CROPPED_SAVE_DIR, conf_threshold=lead_cfg['conf_threshold']
+    img = cv2.imread(img_path)
+    cropped_leads = inference_and_label_and_crop(
+        lead_model, img, conf_threshold=lead_cfg['conf_threshold']
     )
 
     for crop_img, label in cropped_leads:
-        base_name = os.path.splitext(img_file)[0]
-        crop_path = os.path.join(CROPPED_SAVE_DIR, f"{base_name}_{label}.jpg")
 
         original_size = crop_img.shape[:2]  # (height, width)
 
-        # resized_crop = cv2.resize(crop_img, (target_width, target_height))
-        cv2.imwrite(crop_path, crop_img)
+        #save to file(optional)
+        cv2.imwrite(os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_crop.jpg'), crop_img)
 
         # Save original size for resizing masks later
-        all_cropped_leads.append((crop_path, label, base_name, original_size))
+        all_cropped_leads.append((crop_img, label, original_size))
 
 
 
 # --- 2. Grid Detection & Square Size Estimation ---
 print("Estimating grid square sizes...")
 lead_to_square_size = {}
-for crop_path, label, base_name, original_size in all_cropped_leads:
-    img = cv2.imread(crop_path)
-    if img is None:
-        print(f"Failed to read {crop_path}")
+for crop_img, label, original_size in all_cropped_leads:
+    
+    if crop_img is None:
+        print(f"No image found for {label}")
         continue
-    square_size = get_grid_square_size(img, closing_kernel=GRID_KERNEL, length_frac=GRID_LENGTH_FRAC)
-    print(f"Estimated square size for {base_name}_{label}: {square_size} pixels")
-    lead_to_square_size[crop_path] = square_size
+    square_size = get_grid_square_size(crop_img, closing_kernel=GRID_KERNEL, length_frac=GRID_LENGTH_FRAC)
+    print(f"Estimated square size for {label}: {square_size} pixels")
+    lead_to_square_size[label] = square_size
 
 # --- 3. Wave Extraction (Binary Mask) ---
 print("Extracting binary wave masks...")
 wave_extractor = WaveExtractor(WAVE_WEIGHTS_PATH, device=WAVE_DEVICE)
 lead_to_wave_mask = {}
 
-for crop_path, label, base_name, original_size in all_cropped_leads:
-    print(f"Processing: {base_name}_{label}")
+for crop_img, label, original_size in all_cropped_leads:
+    print(f"Processing: {label}")
     # print(f"Original size raw: {original_size} (type: {type(original_size)})")
 
     try:
@@ -89,29 +90,31 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
         print(f"  ❌ ERROR parsing original_size: {original_size}")
         raise e
 
-    binary_mask = wave_extractor.extract_wave(crop_path)
+    binary_mask = wave_extractor.extract_wave(Image.fromarray(crop_img))
     binary_mask_np = np.array(binary_mask)
 
-    binary_mask_resized = cv2.resize(binary_mask_np, (w, h), interpolation=cv2.INTER_NEAREST)
-    lead_to_wave_mask[crop_path] = binary_mask_resized
+    binary_mask_resized = cv2.resize(binary_mask_np, (h, w), interpolation=cv2.INTER_NEAREST)
+    cv2.imwrite(os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_binarymask.jpg'), binary_mask_resized)
+
+    lead_to_wave_mask[label] = binary_mask_resized
     # print(f"✅ Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
 
-    wave_extractor.save_wave(binary_mask,os.path.join(FINAL_OUTPUT_DIR, f"{base_name}_{label}_binary_wave_plot.png"))
+    # wave_extractor.save_wave(binary_mask,os.path.join(FINAL_OUTPUT_DIR, f"{base_name}_{label}_binary_wave_plot.png"))
     
-# --- 4. Digitize: Convert Mask to Waveform ---
 # --- 4. Digitize: Convert Mask to Waveform ---
 print("Digitizing waveforms...")
 lead_waveforms = []
 lead_labels = []
-for crop_path, label, base_name, original_size in all_cropped_leads:
+for crop_path, label, original_size in all_cropped_leads:
+    print(f'Processing {label}')
     # original_size = (height, width)
     h_orig, w_orig = original_size
-    print(f"[DEBUG] {base_name}_{label} crop_img shape: height={h_orig}, width={w_orig}")
-    binary_mask = lead_to_wave_mask[crop_path]
-    print(f"[DEBUG]   raw mask shape: {binary_mask.shape}")
+    # print(f"[DEBUG] {base_name}_{label} crop_img shape: height={h_orig}, width={w_orig}")
+    binary_mask = lead_to_wave_mask[label]
+    # print(f"[DEBUG]   raw mask shape: {binary_mask.shape}")
 
-    square_size = lead_to_square_size[crop_path]
-    print(f"[DEBUG]   square_size: {square_size}")
+    square_size = lead_to_square_size[label]
+    # print(f"[DEBUG]   square_size: {square_size}")
 
     # *** FIX: pass (w_orig, h_orig) to resize ***
     binary_mask_resized = cv2.resize(
@@ -119,16 +122,15 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
         (w_orig, h_orig),                # width, height
         interpolation=cv2.INTER_NEAREST
     )
-    print(f"[DEBUG]   resized mask shape: {binary_mask_resized.shape}")
+    # print(f"[DEBUG]   resized mask shape: {binary_mask_resized.shape}")
 
     waveform = process_ecg_mask(
         binary_mask_resized,
         square_size,
-        output_dir=FINAL_OUTPUT_DIR,
-        base_name=f"{base_name}_{label}",
-        plot=False
+        # plot_path = os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_plot.jpg'), #optional
+        array_path = os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}.npy') #optional
     )
-    print(f"[DEBUG]   digitized waveform length: {len(waveform)} samples\n")
+    # print(f"[DEBUG]   digitized waveform length: {len(waveform)} samples\n")
     lead_waveforms.append(waveform)
     lead_labels.append(label)
 

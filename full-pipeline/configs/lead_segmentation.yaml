@@ -1,6 +1,6 @@
 input_image_dir: ./data/inputs #change according to need
 output_dir: ./data/outputs #change according to need
-conf_threshold: 0.7 # Dont change
+conf_threshold: 0.5 # Dont change
 model_path: ../models/yolo-segmentation-weights_float16.tflite # tflite model path change according to need
 left_labels: [I, II, III, aVL, aVR, aVF] # dont change
 right_labels: [V1, V2, V3, V4, V5, V6] # dont change

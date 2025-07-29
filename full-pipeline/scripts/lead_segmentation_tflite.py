@@ -155,25 +155,19 @@ def init_model(model_path=MODEL_PATH):
 
 
 def inference_and_label_and_crop(interpreter,
-                                 input_image_path, output_dir,
+                                 image,
                                  conf_threshold=CONF_THRESHOLD):
     """
     Perform inference on a single image using ONNX, label detected boxes, and save cropped leads.
 
     Args:
         interpreter: tflite model interpreter
-        input_image_path: Path to input image
-        output_dir: Directory to save cropped leads
+        image: input image
         conf_threshold: Confidence threshold for detection
 
     Returns:
         cropped_leads: List of (cropped lead image, label)
-        labeled_boxes_paths: List of saved image paths
     """
-    os.makedirs(output_dir, exist_ok=True)
-    image = cv2.imread(input_image_path)
-    if image is None:
-        raise FileNotFoundError(f"Could not load image: {input_image_path}")
     img_h, img_w = image.shape[:2]
 
     # Preprocess
@@ -194,9 +188,13 @@ def inference_and_label_and_crop(interpreter,
 
     # Postprocess
     filtered = filter_Detections(results, thresh=conf_threshold)
+    print(f'[DEBUG] filtreed len: {len(filtered)}')
     keep, confidences = rescale_back(filtered, img_w, img_h)
+    print(f'[DEBUG] keep len: {len(keep)}')
     # only class 0
     keep = [b for b in keep if int(b[-1]) == 0]
+    print(f'[DEBUG] keep filtered len: {len(keep)}')
+
 
     if len(keep) < len(LEFT_LABELS) + len(RIGHT_LABELS):
         raise RuntimeError(f"Detected only {len(keep)} boxes, expected {len(LEFT_LABELS)+len(RIGHT_LABELS)}.")
@@ -214,15 +212,10 @@ def inference_and_label_and_crop(interpreter,
 
     cropped_leads = []
     labeled_boxes_paths = []
-    base = os.path.splitext(os.path.basename(input_image_path))[0]
     for box, label in labeled:
         x1,y1,x2,y2 = map(int,box)
         crop = image[y1:y2, x1:x2]
         if crop.size==0: continue
-        path = os.path.join(output_dir, f"{base}_{label}.jpg")
-        cv2.imwrite(path, crop, [cv2.IMWRITE_JPEG_QUALITY,100])
         cropped_leads.append((crop,label))
-        labeled_boxes_paths.append(path)
 
-    print(f"[DEBUG] Saved {len(labeled_boxes_paths)} crops")
-    return cropped_leads, labeled_boxes_paths
+    return cropped_leads
