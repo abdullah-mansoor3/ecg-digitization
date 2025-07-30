@@ -69,14 +69,15 @@ for img_file in image_files:
         cv2.imwrite(crop_path, crop_img)
 
         # Save original size for resizing masks later
-        all_cropped_leads.append((crop_path, label, base_name, crop_path))
+        h, w = crop_img.shape[:2]
+        all_cropped_leads.append((crop_path, label, base_name, (h, w)))
 
 
 
 # --- 2. Grid Detection & Square Size Estimation ---
 print("Estimating grid square sizes...")
 lead_to_square_size = {}
-for crop_path, label, base_name, original_size in all_cropped_leads:
+for crop_path, label, base_name, (orig_h, orig_w) in all_cropped_leads:
     img = cv2.imread(crop_path)
     if img is None:
         print(f"Failed to read {crop_path}")
@@ -90,14 +91,16 @@ print("Extracting binary wave masks...")
 wave_extractor = WaveExtractor(WAVE_WEIGHTS_PATH, device=WAVE_DEVICE)
 lead_to_wave_mask = {}
 
-for crop_path, label, base_name, original_size in all_cropped_leads:
-    binary_mask = wave_extractor.extract_wave(crop_path)
+for crop_path, label, base_name, (orig_h, orig_w) in all_cropped_leads:
     print(f'Extracting wave for {base_name}_{label}')
+    
+    binary_mask = wave_extractor.extract_wave(crop_path)
+    binary_mask_resized = cv2.resize(binary_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+    lead_to_wave_mask[crop_path] = binary_mask_resized
     # Resize mask back to original lead crop size (important for accurate square_size)
-    # binary_mask_resized = cv2.resize(binary_mask[0][0], (original_size[1], original_size[0]), interpolation=cv2.INTER_NEAREST)
-    lead_to_wave_mask[crop_path] = binary_mask
-    # cv2.imwrite(os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_binarymask.jpg'), binary_mask)
-    # print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
+    lead_to_wave_mask[crop_path] = binary_mask_resized
+    cv2.imwrite(os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_binarymask.jpg'), binary_mask)
+    print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
     # wave_extractor.plot_wave(binary_mask)
 
 
@@ -105,7 +108,7 @@ for crop_path, label, base_name, original_size in all_cropped_leads:
 print("Digitizing waveforms...")
 lead_waveforms = []
 lead_labels = []
-for crop_path, label, base_name, original_size in all_cropped_leads:
+for crop_path, label, base_name, (orig_h, orig_w) in all_cropped_leads:
     binary_mask = lead_to_wave_mask[crop_path]
     square_size = lead_to_square_size[crop_path]
     waveform = process_ecg_mask(

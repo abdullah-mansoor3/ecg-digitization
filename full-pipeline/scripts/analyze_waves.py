@@ -136,60 +136,60 @@ def extract_segment(ecg_signals, quality_threshold=0.3):
 def analyze_waves(waves_by_lead, lead_labels):
     report = []
     for i, (signal, lead) in enumerate(zip(waves_by_lead, lead_labels)):
-        # try:
-        ecg_signals = process_full_lead(signal)
-        segment = extract_segment(ecg_signals)
-        feats = extract_features(segment)
-
-        rr = feats["RR_interval_s"].mean()
-        hr = feats["Heart_Rate_bpm"].mean()
-        pr = feats["PR_interval_s"].mean()
-        qrs = feats["QRS_duration_s"].mean()
-        qt = feats["QT_interval_s"].mean()
-
-        r_amp = feats["R_amplitude"].mean()
-        q_amp = feats["P_amplitude"].mean() 
-        t_amp = feats["T_amplitude"].mean()
-
-
-        section = [f"**Lead {lead}**"]
-        section.append(interpret_feature(rr, (0.6, 1.2), "RR interval"))
-        section.append(interpret_feature(pr, (0.12, 0.20), "PR interval"))
-        section.append(interpret_feature(qrs, (0.06, 0.10), "QRS duration"))
-        section.append(interpret_feature(qt, (0.30, 0.44), "QT interval"))
-
-        section.append(interpret_amplitude(q_amp, (-0.3, -0.05), "Q"))
-        section.append(interpret_amplitude(r_amp, (0.5, 1.5), "R"))
-        section.append(interpret_amplitude(t_amp, (0.1, 0.5), "T"))
-
-        st = None
         try:
-            s_idx = segment.index[segment["ECG_S_Peaks"] == 1].values
-            t_onsets = segment.index[segment["ECG_T_Onsets"] == 1].values
-            if len(s_idx) > 0 and len(t_onsets) > 0:
-                st_val = segment.loc[t_onsets[0], "ECG_Clean"] - segment.loc[s_idx[0], "ECG_Clean"]
-                st = float(st_val)
-        except:
+            ecg_signals = process_full_lead(signal)
+            segment = extract_segment(ecg_signals)
+            feats = extract_features(segment)
+
+            rr = feats["RR_interval_s"].mean()
+            hr = feats["Heart_Rate_bpm"].mean()
+            pr = feats["PR_interval_s"].mean()
+            qrs = feats["QRS_duration_s"].mean()
+            qt = feats["QT_interval_s"].mean()
+
+            r_amp = feats["R_amplitude"].mean()
+            q_amp = feats["P_amplitude"].mean() 
+            t_amp = feats["T_amplitude"].mean()
+
+
+            section = [f"**Lead {lead}**"]
+            section.append(interpret_feature(rr, (0.6, 1.2), "RR interval"))
+            section.append(interpret_feature(pr, (0.12, 0.20), "PR interval"))
+            section.append(interpret_feature(qrs, (0.06, 0.10), "QRS duration"))
+            section.append(interpret_feature(qt, (0.30, 0.44), "QT interval"))
+
+            section.append(interpret_amplitude(q_amp, (-0.3, -0.05), "Q"))
+            section.append(interpret_amplitude(r_amp, (0.5, 1.5), "R"))
+            section.append(interpret_amplitude(t_amp, (0.1, 0.5), "T"))
+
             st = None
+            try:
+                s_idx = segment.index[segment["ECG_S_Peaks"] == 1].values
+                t_onsets = segment.index[segment["ECG_T_Onsets"] == 1].values
+                if len(s_idx) > 0 and len(t_onsets) > 0:
+                    st_val = segment.loc[t_onsets[0], "ECG_Clean"] - segment.loc[s_idx[0], "ECG_Clean"]
+                    st = float(st_val)
+            except:
+                st = None
 
-        if st is not None and not np.isnan(st):
-            thresh = 0.10 if lead in ["II","III","aVF","I","aVL","V4","V5","V6"] else 0.15 if lead=="V3" else 0.20 if lead=="V2" else 0.10
-            st_status = "ST-elevated" if st>=thresh else "ST normal"
-            section.append(f"ST-segment surrogate: {st:.3f} mV — threshold {thresh:.2f}: {st_status}")
+            if st is not None and not np.isnan(st):
+                thresh = 0.10 if lead in ["II","III","aVF","I","aVL","V4","V5","V6"] else 0.15 if lead=="V3" else 0.20 if lead=="V2" else 0.10
+                st_status = "ST-elevated" if st>=thresh else "ST normal"
+                section.append(f"ST-segment surrogate: {st:.3f} mV — threshold {thresh:.2f}: {st_status}")
 
-        anomalies = []
-        if q_amp < -0.1: anomalies.append("Pathologic Q wave possible")
-        if st is not None and st >= thresh: anomalies.append("Suggests STEMI")
-        if hr < 50: anomalies.append("Bradycardia")
-        if hr > 100: anomalies.append("Tachycardia")
-        if not anomalies:
-            anomalies.append("No major abnormal findings")
+            anomalies = []
+            if q_amp < -0.1: anomalies.append("Pathologic Q wave possible")
+            if st is not None and st >= thresh: anomalies.append("Suggests STEMI")
+            if hr < 50: anomalies.append("Bradycardia")
+            if hr > 100: anomalies.append("Tachycardia")
+            if not anomalies:
+                anomalies.append("No major abnormal findings")
 
-        section.append("🌡️ Interpretation: " + "; ".join(anomalies))
-        report.append("\n".join(section))
+            section.append("🌡️ Interpretation: " + "; ".join(anomalies))
+            report.append("\n".join(section))
 
-        # except Exception as e:
-        #     print(f"[ERROR] Lead {lead} failed with exception: {e}")
-        #     report.append(f"Lead {lead}: Error — {str(e)}")
+        except Exception as e:
+            print(f"[ERROR] Lead {lead} failed with exception: {e}")
+            report.append(f"Lead {lead}: Error — {str(e)}")
 
     return "\n\n".join(report)
