@@ -2,7 +2,7 @@ import os
 import cv2
 import yaml
 import numpy as np
-import tensorflow as tf
+import onnxruntime as ort
 
 # Load config from YAML
 with open('./configs/lead_segmentation.yaml', 'r') as f:
@@ -140,28 +140,26 @@ def rescale_back(results,img_w,img_h):
 
 def init_model(model_path=MODEL_PATH):
     """
-    Initialize the tflite model for lead segmentation.
+    Initialize the ONNX model for lead segmentation.
     Args:
-        model_path: Path to the tflite model file.
+        model_path: Path to the ONNX model file.
     Returns:
-        interpreter: tflite interpreter
+        session: ONNX Runtime inference session
     """
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"TFLite model not found at {model_path}")
-    interpreter = tf.lite.Interpreter(model_path=model_path)
-    interpreter.allocate_tensors()
-    return interpreter
+        raise FileNotFoundError(f"ONNX model not found at {model_path}")
+
+    session = ort.InferenceSession(model_path)
+
+    return session
 
 
-
-def inference_and_label_and_crop(interpreter,
-                                 input_image_path, output_dir,
-                                 conf_threshold=CONF_THRESHOLD):
+def inference_and_label_and_crop(session, input_image_path, output_dir, conf_threshold=CONF_THRESHOLD):
     """
     Perform inference on a single image using ONNX, label detected boxes, and save cropped leads.
 
     Args:
-        interpreter: tflite model interpreter
+        model_session: ONNX Runtime session
         input_image_path: Path to input image
         output_dir: Directory to save cropped leads
         conf_threshold: Confidence threshold for detection
@@ -174,55 +172,89 @@ def inference_and_label_and_crop(interpreter,
     image = cv2.imread(input_image_path)
     if image is None:
         raise FileNotFoundError(f"Could not load image: {input_image_path}")
+
     img_h, img_w = image.shape[:2]
 
     # Preprocess
     img = cv2.resize(image, (640, 640))
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = img.transpose(2, 0, 1)[None]   # shape [1,3,640,640]
-    img = img.astype(np.float32) / 255.0
+    img = img.transpose(2, 0, 1)
+    img = img.reshape(1, 3, 640, 640)
+    # Normalize pixel values to the range [0, 1]
+    img = img / 255.0
 
-    # Inference
-    input_details, output_details = interpreter.get_input_details(), interpreter.get_output_details()
-    img = np.transpose(img, (0, 2, 3, 1))  # Now [1, 640, 640, 3]
-    print("Input shape to TFLite model:", img.shape)
-    # Should be (1, 640, 640, 3)
-    interpreter.set_tensor(input_details[0]['index'], img)
-    interpreter.invoke()
-    output_data = interpreter.get_tensor(output_details[0]['index'])  # [1, C, N]
-    results = output_data[0].T  # transpose to shape [N, C]
+    # Convert image to float32
+    img = img.astype(np.float32)
 
+    # Model inference
+    outputs = session.run(None, {"images": img})
+    results = outputs[0][0]
+    results = results.transpose()
+
+    # Change logic from there if needed
     # Postprocess
-    filtered = filter_Detections(results, thresh=conf_threshold)
-    keep, confidences = rescale_back(filtered, img_w, img_h)
-    # only class 0
-    keep = [b for b in keep if int(b[-1]) == 0]
+    results = filter_Detections(results)
+    rescaled_results, confidences = rescale_back(results, img_w, img_h)
+    rescaled_results = [x for x in rescaled_results if int(x[-1]) == 0]
 
-    if len(keep) < len(LEFT_LABELS) + len(RIGHT_LABELS):
-        raise RuntimeError(f"Detected only {len(keep)} boxes, expected {len(LEFT_LABELS)+len(RIGHT_LABELS)}.")
+    
+    if len(rescaled_results) < len(LEFT_LABELS) + len(RIGHT_LABELS):
+        raise RuntimeError(
+            f"Detected only {len(rescaled_results)} boxes, but expected {len(LEFT_LABELS)+len(RIGHT_LABELS)}."
+        )
 
 
-    wave_boxes = [b[:4] for b in keep]
-    x_centers = [((x1+x2)/2) for x1,y1,x2,y2 in wave_boxes]
+    wave_boxes = [b[:4] for b in rescaled_results]
+
+    labeled_boxes = []
+    x_centers = [((box[0] + box[2]) / 2) for box in wave_boxes]
+
     median_x = np.median(x_centers)
-    left, right = [], []
+
+    left_boxes = []
+    right_boxes = []
     for box in wave_boxes:
-        x1, x2 = box[0], box[2]
-        (left if x1<median_x else right).append(box)
-    left.sort(key=lambda b: (b[1]+b[3])/2); right.sort(key=lambda b: (b[1]+b[3])/2)
-    labeled = list(zip(left, LEFT_LABELS)) + list(zip(right, RIGHT_LABELS))
+        x_center = (box[0] + box[2]) / 2
+        if x_center < median_x:
+            left_boxes.append(box)
+        else:
+            right_boxes.append(box)
 
+    left_boxes = sorted(left_boxes, key=lambda b: (b[1] + b[3]) / 2)
+    right_boxes = sorted(right_boxes, key=lambda b: (b[1] + b[3]) / 2)
+
+
+    
+
+    for box, label in zip(left_boxes, LEFT_LABELS):
+        labeled_boxes.append((box, label))
+    for box, label in zip(right_boxes, RIGHT_LABELS):
+        labeled_boxes.append((box, label))
+
+
+    print(len(labeled_boxes))
+
+    base_name = os.path.splitext(os.path.basename(input_image_path))[0]
     cropped_leads = []
-    labeled_boxes_paths = []
-    base = os.path.splitext(os.path.basename(input_image_path))[0]
-    for box, label in labeled:
-        x1,y1,x2,y2 = map(int,box)
-        crop = image[y1:y2, x1:x2]
-        if crop.size==0: continue
-        path = os.path.join(output_dir, f"{base}_{label}.jpg")
-        cv2.imwrite(path, crop, [cv2.IMWRITE_JPEG_QUALITY,100])
-        cropped_leads.append((crop,label))
-        labeled_boxes_paths.append(path)
+    cropped_leads_paths = []
 
-    print(f"[DEBUG] Saved {len(labeled_boxes_paths)} crops")
-    return cropped_leads, labeled_boxes_paths
+    for box, label in labeled_boxes:
+        x1, y1, x2, y2 = [int(coord) for coord in box]
+        if x2 <= x1 or y2 <= y1:
+            print(1)
+            continue
+
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(img_w, x2), min(img_h, y2)
+        crop = image[y1:y2, x1:x2]
+        if crop.size == 0:
+            print(2)
+            continue
+        save_path = os.path.join(output_dir, f"{base_name}_{label}.jpg")
+        cv2.imwrite(save_path, crop, [cv2.IMWRITE_JPEG_QUALITY, 100])
+        cropped_leads.append((crop, label))
+        cropped_leads_paths.append(save_path)
+
+    print(len(cropped_leads))
+
+    return cropped_leads, cropped_leads_paths

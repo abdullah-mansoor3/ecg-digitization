@@ -11,8 +11,6 @@ def detect_pqrs(signal, sampling_rate=400):
         dict: Dictionary with keys 'P', 'Q', 'R', 'S', 'T', each mapping to an array of peak indices.
         np.ndarray: Cleaned ECG signal (same length as input).
     """
-    if len(signal) == 0 or signal is None:
-        return None, None
     # Pad to at least 4000 samples for stability (optional, can adjust)
     min_len = 4000
     if len(signal) < min_len:
@@ -20,8 +18,7 @@ def detect_pqrs(signal, sampling_rate=400):
     else:
         signal2 = signal
 
-    ecg_cleaned = nk.ecg_clean(signal2, sampling_rate=400)
-    signals, info = nk.ecg_process(ecg_cleaned, sampling_rate=sampling_rate)
+    signals, info = nk.ecg_process(signal2, sampling_rate=sampling_rate)
     cleaned = np.array(signals["ECG_Clean"][:len(signal)])
 
     peaks_dict = {}

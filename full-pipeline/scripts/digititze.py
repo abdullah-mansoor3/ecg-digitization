@@ -163,3 +163,29 @@ def process_ecg_mask(mask, square_size,array_path=None, plot_path=None):
         np.save(array_path, signal_trimmed)
 
     return signal_trimmed
+
+def plot_waveform(waveform, time_axis=None, xlim=(0, 1000), ylim=(-1, 1), title="ECG Signal (in mV)"):
+    """
+    Plots the ECG waveform.
+    Args:
+        waveform (np.ndarray): 1D array of waveform values
+        time_axis (np.ndarray or None): Optional time axis for x values
+        xlim (tuple): x-axis limits
+        ylim (tuple): y-axis limits
+        title (str): Plot title
+    """
+    plt.figure(figsize=(10, 4))
+    if time_axis is not None:
+        # plt.plot(time_axis, waveform)
+        # plt.xlabel("Time (s)")
+        pass
+    else:
+        plt.plot(waveform)
+        plt.xlabel("Sample")
+    plt.title(title)
+    plt.ylabel("Voltage (mV)")
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    plt.grid()
+    plt.tight_layout()
+    plt.show()

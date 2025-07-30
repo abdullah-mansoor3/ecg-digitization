@@ -104,9 +104,9 @@ def interpret_amplitude(amp, normal_amp_range, label):
     reasoning = f" (expected {low}–{high} mV, observed {amp:.3f} mV)" if status=="abnormal" else ""
     return f"{label} amplitude: {amp:.3f} mV — {status}{reasoning}"
 
-def extract_segment(ecg_signals, quality_threshold=0.5):
+def extract_segment(ecg_signals, quality_threshold=0.3):
     
-    quality_mask = ecg_signals["ECG_Quality"] >= 0.5
+    quality_mask = ecg_signals["ECG_Quality"] >= quality_threshold
     if quality_mask is None:
         print("[WARN] ECG_Quality column missing, recomputing on ECG_Clean")
         qual = nk.ecg_quality(ecg_signals["ECG_Clean"], sampling_rate=SAMPLING_RATE)
@@ -123,7 +123,7 @@ def extract_segment(ecg_signals, quality_threshold=0.5):
 
     lengths = ends - starts
     if len(lengths) == 0:
-        raise ValueError("No segment found with ECG_Quality >= 0.5")
+        raise ValueError(f"No segment found with ECG_Quality >= {quality_threshold}")
 
     longest_idx = np.argmax(lengths)
     start_idx = starts[longest_idx]
