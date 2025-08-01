@@ -80,7 +80,7 @@ def extract_features(segment_df, sampling_rate=400):
             }
             features.append(feature_dict)
         except Exception as e:
-            print(f"Skipping beat {i} due to error: {e}")
+            # print(f"Skipping beat {i} due to error: {e}")
             continue
 
     df = pd.DataFrame(features)
@@ -108,7 +108,7 @@ def extract_segment(ecg_signals, quality_threshold=0.3):
     
     quality_mask = ecg_signals["ECG_Quality"] >= quality_threshold
     if quality_mask is None:
-        print("[WARN] ECG_Quality column missing, recomputing on ECG_Clean")
+        # print("[WARN] ECG_Quality column missing, recomputing on ECG_Clean")
         qual = nk.ecg_quality(ecg_signals["ECG_Clean"], sampling_rate=SAMPLING_RATE)
         ecg_signals["ECG_Quality"] = qual
 
@@ -134,7 +134,9 @@ def extract_segment(ecg_signals, quality_threshold=0.3):
 
 
 def analyze_waves(waves_by_lead, lead_labels):
-    report = []
+    full_report = []
+    anomaly_only_report = []
+
     for i, (signal, lead) in enumerate(zip(waves_by_lead, lead_labels)):
         try:
             ecg_signals = process_full_lead(signal)
@@ -150,7 +152,6 @@ def analyze_waves(waves_by_lead, lead_labels):
             r_amp = feats["R_amplitude"].mean()
             q_amp = feats["P_amplitude"].mean() 
             t_amp = feats["T_amplitude"].mean()
-
 
             section = [f"**Lead {lead}**"]
             section.append(interpret_feature(rr, (0.6, 1.2), "RR interval"))
@@ -173,8 +174,8 @@ def analyze_waves(waves_by_lead, lead_labels):
                 st = None
 
             if st is not None and not np.isnan(st):
-                thresh = 0.10 if lead in ["II","III","aVF","I","aVL","V4","V5","V6"] else 0.15 if lead=="V3" else 0.20 if lead=="V2" else 0.10
-                st_status = "ST-elevated" if st>=thresh else "ST normal"
+                thresh = 0.10 if lead in ["II", "III", "aVF", "I", "aVL", "V4", "V5", "V6"] else 0.15 if lead == "V3" else 0.20 if lead == "V2" else 0.10
+                st_status = "ST-elevated" if st >= thresh else "ST normal"
                 section.append(f"ST-segment surrogate: {st:.3f} mV — threshold {thresh:.2f}: {st_status}")
 
             anomalies = []
@@ -185,11 +186,15 @@ def analyze_waves(waves_by_lead, lead_labels):
             if not anomalies:
                 anomalies.append("No major abnormal findings")
 
+            anomaly_section = f"**Lead {lead} Anomalies**:\n" + "\n".join(f"- {a}" for a in anomalies)
+
             section.append("🌡️ Interpretation: " + "; ".join(anomalies))
-            report.append("\n".join(section))
+
+            full_report.append("\n".join(section))
+            anomaly_only_report.append(anomaly_section)
 
         except Exception as e:
-            print(f"[ERROR] Lead {lead} failed with exception: {e}")
-            report.append(f"Lead {lead}: Error — {str(e)}")
+            full_report.append(f"Lead {lead}: Error - Couldn't Detect {str(e)}")
+            anomaly_only_report.append(f"**Lead {lead} Anomalies**: Error")
 
-    return "\n\n".join(report)
+    return "\n\n".join(full_report), "\n\n".join(anomaly_only_report)

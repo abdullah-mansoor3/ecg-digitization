@@ -10,7 +10,9 @@ import numpy as np
 from scripts.grid_detection import get_grid_square_size
 from scripts.analyze_waves import analyze_waves
 from scripts.digititze import process_ecg_mask, plot_waveform
-from scripts.create_ecg_paper import create_ecg_paper  # Add this import
+from scripts.create_ecg_paper import create_ecg_paper
+from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
+from scripts.extract_wave import WaveExtractor
 
 # --- Load configs ---
 with open('./configs/lead_segmentation.yaml', 'r') as f:
@@ -34,26 +36,15 @@ YOLO_WEIGHTS_PATH = lead_cfg['model_path']
 os.makedirs(CROPPED_SAVE_DIR, exist_ok=True)
 os.makedirs(FINAL_OUTPUT_DIR, exist_ok=True)
 
-if 'onnx' in YOLO_WEIGHTS_PATH.lower():
-    from scripts.lead_segmentation_onnx import init_model as init_lead_model, inference_and_label_and_crop
-elif 'tflite' in YOLO_WEIGHTS_PATH.lower():
-    from scripts.lead_segmentation_tflite import init_model as init_lead_model, inference_and_label_and_crop
-else:
-    from scripts.lead_segmentation import init_model as init_lead_model, inference_and_label_and_crop
 
-if 'tflite' in WAVE_WEIGHTS_PATH.lower():
-    from scripts.extract_wave_tflite import WaveExtractor
-else:
-    from scripts.extract_wave import WaveExtractor
-
-# --- 1. Lead Segmentation ---
-print("Running lead segmentation...")
 lead_model = init_lead_model(lead_cfg['model_path'])
 image_files = [f for f in os.listdir(INPUT_IMAGE_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
 
 
 all_cropped_leads = []
 for img_file in image_files:
+    # --- 1. Lead Segmentation ---
+    print("Running lead segmentation...")
     img_path = os.path.join(INPUT_IMAGE_DIR, img_file)
     cropped_leads, _ = inference_and_label_and_crop(
         lead_model, img_path, CROPPED_SAVE_DIR, conf_threshold=lead_cfg['conf_threshold']
@@ -101,7 +92,7 @@ for crop_path, label, base_name, (orig_h, orig_w) in all_cropped_leads:
     lead_to_wave_mask[crop_path] = binary_mask_resized
     cv2.imwrite(os.path.join(FINAL_OUTPUT_DIR, f'{base_name}_{label}_binarymask.jpg'), binary_mask)
     print(f"Resized binary mask for {base_name}_{label}: {binary_mask_resized.shape}")
-    # wave_extractor.plot_wave(binary_mask)
+    # wave_extractor.plot_wave(binary_mask_resized)
 
 
 # --- 4. Digitize: Convert Mask to Waveform ---
@@ -130,8 +121,9 @@ create_ecg_paper(lead_waveforms, lead_labels, ecg_paper_path)
 print("ECG paper saved to:", ecg_paper_path)
 
 # --- 6. Analyze waves ---
-analysis = analyze_waves(lead_waveforms, lead_labels)
-print(f'\n\n\nFinal analysis\n\n{analysis}')
+full_analysis, short_analysis = analyze_waves(lead_waveforms, lead_labels)
+print(f'\n\n\nFull analysis\n\n{full_analysis}\n\n\n')
+print(f'\n\n\nShort analysis\n\n{short_analysis}\n\n\n')
 
 print("Pipeline complete. All outputs saved to:", FINAL_OUTPUT_DIR)
 

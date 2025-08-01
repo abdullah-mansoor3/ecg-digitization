@@ -1,3 +1,4 @@
-weights_path: ../models/unet-binary-masking.pth
+# weights_path: ../models/unet-binary-masking.pth
+weights_path: ../models/final_unet.pth
 # weights_path : '../models/unet_model.tflite'
 device: cpu

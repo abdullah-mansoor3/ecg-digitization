@@ -140,9 +140,9 @@ def process_ecg_mask(mask, square_size,array_path=None, plot_path=None):
     signal_filtered = highpass_filter(signal_mv_interp, fs=400)
     signal_filtered = lowpass_filter(signal_filtered, fs=400)
     signal_clean = medfilt(signal_filtered, kernel_size=3)
-    print(f"[INFO] processed clean signal length: {len(signal_clean)} samples")
+    # print(f"[INFO] processed clean signal length: {len(signal_clean)} samples")
     signal_trimmed, time_trimmed = trim_low_energy_and_spikes(signal_clean, time_interp)
-    print(f"[INFO] processed trimmed clean signal length: {len(signal_trimmed)} samples")
+    # print(f"[INFO] processed trimmed clean signal length: {len(signal_trimmed)} samples")
 
 
 
